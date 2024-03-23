@@ -1,50 +1,48 @@
+
 pipeline {
-  agent any
-
-  environment {
-       imagename = "muqodas/task-tomcatapp"
-       registryCredential = 'ECR'
-       dockerImage = ''
+   agent any
+   environment {
+        AWS_ACCOUNT_ID="YOUR_ACCOUNT_ID_HERE"
+        AWS_DEFAULT_REGION="CREATED_AWS_ECR_CONTAINER_REPO_REGION" 
+        IMAGE_REPO_NAME="ECR_REPO_NAME"
+        IMAGE_TAG="latest"
+        REPOSITORY_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}"
+   }
+ 
+   stages {
+ 
+        stage('Logging into AWS ECR') {
+           steps {
+               script {
+               sh "aws ecr get-login-password - region ${AWS_DEFAULT_REGION} | docker login - username AWS - password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+               }
+ 
            }
-
-  
-  stages {
-
-    stage ('Build') {
-      steps {
-        sh 'mvn clean package'
-        echo 'Maven Build'
-      }
-    }
-
-    stage('Build Test') {
+        }
+ 
+        stage('Cloning Git') {
             steps {
-                sh 'mvn test'
-                echo 'Test Analysis'
+                checkout([$class: 'GitSCM', branches: [[name: '*/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: '', url: 'https://github.com/sd031/aws_codebuild_codedeploy_nodeJs_demo.git']]]) 
             }
         }
-    
-      stage('Build Docker image') {
-          steps{
-                script {
-                   dockerImage = docker.build imagename + ":$BUILD_NUMBER"
-                          }
-                      }
-                }
-
-     stage('Push Docker Image to ECR') {
-           steps{
-               script {
-                    docker.withRegistry( '', registryCredential ) {
-                    dockerImage.push("$BUILD_NUMBER")
-                                              }
-                                    }
-                             }
-                  }
-     stage('Remove Unused docker image') {
-          steps{
-              sh "docker rmi $imagename:$BUILD_NUMBER"
-                        }
-            }  
-   }
+ 
+    // Building Docker images
+    stage('Building image') {
+      steps{
+        script {
+          dockerImage = docker.build "${IMAGE_REPO_NAME}:${IMAGE_TAG}"
+        }
+      }
+    }
+ 
+    // Uploading Docker images into AWS ECR
+    stage('Pushing to ECR') {
+      steps{ 
+        script {
+        sh "docker tag ${IMAGE_REPO_NAME}:${IMAGE_TAG} ${REPOSITORY_URI}:$IMAGE_TAG"
+        sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:${IMAGE_TAG}"
+        }
+      }
+    }
+  }
 }
